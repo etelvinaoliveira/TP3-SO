@@ -21,12 +21,12 @@ block = numero da pagina no disco
 */
 #define NUM_PAGES (UVM_MAXADDR - UVM_BASEADDR + 1) / PAGE_SIZE
 
-intptr_t pager_page_to_addr(int page) {
-  return UVM_BASEADDR + page * sysconf(_SC_PAGESIZE);
+void * pager_page_to_addr(int page) {
+  return (void *)(UVM_BASEADDR + page * sysconf(_SC_PAGESIZE));
 }
 
-int pager_addr_to_page(intptr_t vaddr) {
-  return (vaddr - UVM_BASEADDR) / sysconf(_SC_PAGESIZE) ;
+int pager_addr_to_page(void * vaddr) {
+  return ((long int)vaddr - UVM_BASEADDR) / sysconf(_SC_PAGESIZE) ;
 }
 
 int second_chance_idx = 0; /*indice de onde o algoritmo da segunda chance parou*/
@@ -107,13 +107,13 @@ void pager_init(int nframes, int nblocks){
   my_pager.free_frames_stack = malloc(sizeof(int)*nframes);
   for (int i = 0; i < nframes; i++)
   {
-    my_pager.free_frames_stack = i;
+    my_pager.free_frames_stack[i] = i;
   }
   my_pager.blocks_free = nblocks;
   my_pager.blocks_free_stack = malloc(sizeof(int)*nblocks);
   for (int i = 0; i < nblocks; i++)
   {
-    my_pager.blocks_free_stack = i;
+    my_pager.blocks_free_stack[i] = i;
   }
   my_pager.block2pid = malloc(nblocks*sizeof(pid_t));
   my_pager.clock = 0;
@@ -199,10 +199,10 @@ void *pager_extend(pid_t pid)
 void pager_fault(pid_t pid, void *addr)
 {
     pthread_mutex_trylock(&my_pager.mutex);
-    int page = pager_addr_to_page((intptr_t) addr);
+    int page = pager_addr_to_page(addr);
     for (int i = 0; i < my_pager.n_procs; i++)
     {
-        if (my_pager.pid2proc[i]==pid)
+        if (my_pager.pid2proc[i]->pid==pid)
         {
             //1) verificar se o endereço pertence ao processo (imprimir mensagem de erro --> seg fault)
             if (page >= my_pager.pid2proc[i]->npages)
@@ -247,17 +247,17 @@ void pager_fault(pid_t pid, void *addr)
 
 int pager_syslog(pid_t pid, void *addr, size_t len)
 {
-    if (addr < UVM_BASEADDR || addr > UVM_MAXADDR)
+    if ((long int)addr < UVM_BASEADDR || (long int)addr > UVM_MAXADDR)
     {
         return -1;
     }
 
     pthread_mutex_trylock(&my_pager.mutex);    
-    int initial_page = pager_addr_to_page((intptr_t) addr); 
-    int final_page = pager_addr_to_page((intptr_t) (addr+len));
+    int initial_page = pager_addr_to_page(addr); 
+    int final_page = pager_addr_to_page((addr+len));
     for (int i = 0; i < my_pager.n_procs; i++)
     {
-        if (my_pager.pid2proc[i]==pid)
+        if (my_pager.pid2proc[i]->pid==pid)
         {
             //verificar se o endereço pertence ao processo (imprimir mensagem de erro --> seg fault)
             if (initial_page >= my_pager.pid2proc[i]->npages || final_page >=my_pager.pid2proc[i]->npages)
