@@ -99,6 +99,7 @@ void second_chance()
 }
 
 void pager_init(int nframes, int nblocks){
+  pthread_mutex_trylock(&my_pager.mutex);
   my_pager.frames = malloc(sizeof(struct frame_data)*nframes);
   my_pager.nframes = nframes;
   my_pager.nblocks = nblocks;
@@ -117,18 +118,22 @@ void pager_init(int nframes, int nblocks){
   my_pager.block2pid = malloc(nblocks*sizeof(pid_t));
   my_pager.clock = 0;
   my_pager.n_procs = 0;
+  pthread_mutex_unlock(&my_pager.mutex);
 }
 
 void pager_create(pid_t pid)
 {
+    pthread_mutex_trylock(&my_pager.mutex);
 	my_pager.n_procs++;
 	my_pager.pid2proc = realloc(my_pager.pid2proc, my_pager.n_procs*sizeof(struct proc));
 	my_pager.pid2proc[my_pager.n_procs-1]->pid = pid;
     my_pager.pid2proc[my_pager.n_procs-1]->npages = 0;
+    pthread_mutex_unlock(&my_pager.mutex);
 }
 
 void *pager_extend(pid_t pid)
 {
+    pthread_mutex_trylock(&my_pager.mutex);
     //se não possui bloco em disco para o processo nem adianta tentar alocar frames na RAM
     if (my_pager.blocks_free>0)
     {
@@ -169,7 +174,8 @@ void *pager_extend(pid_t pid)
             my_pager.frames[frame_idx].dirty = 1;
 
             mmu_resident(pid, pager_page_to_addr(frame_idx), frame_idx, PROT_NONE);
-
+            
+            pthread_mutex_unlock(&my_pager.mutex);
             return pager_page_to_addr(frame_idx); 
         }
         else
@@ -181,14 +187,18 @@ void *pager_extend(pid_t pid)
             my_pager.frames[second_chance_idx].dirty = 1;
             
             mmu_resident(pid, pager_page_to_addr(second_chance_idx), second_chance_idx, PROT_NONE);
+
+            pthread_mutex_unlock(&my_pager.mutex);
             return pager_page_to_addr(second_chance_idx);
         }
     }
+    pthread_mutex_unlock(&my_pager.mutex);
 	return NULL;
 }
 
 void pager_fault(pid_t pid, void *addr)
 {
+    pthread_mutex_trylock(&my_pager.mutex);
     int page = pager_addr_to_page((intptr_t) addr);
     for (int i = 0; i < my_pager.n_procs; i++)
     {
@@ -232,6 +242,7 @@ void pager_fault(pid_t pid, void *addr)
             break;
         }
     }
+    pthread_mutex_unlock(&my_pager.mutex);
 }
 
 int pager_syslog(pid_t pid, void *addr, size_t len)
@@ -240,7 +251,8 @@ int pager_syslog(pid_t pid, void *addr, size_t len)
     {
         return -1;
     }
-    
+
+    pthread_mutex_trylock(&my_pager.mutex);    
     int initial_page = pager_addr_to_page((intptr_t) addr); 
     int final_page = pager_addr_to_page((intptr_t) (addr+len));
     for (int i = 0; i < my_pager.n_procs; i++)
@@ -251,6 +263,7 @@ int pager_syslog(pid_t pid, void *addr, size_t len)
             if (initial_page >= my_pager.pid2proc[i]->npages || final_page >=my_pager.pid2proc[i]->npages)
             {
                 printf("Segmentation fault: address out of processes range");
+                pthread_mutex_unlock(&my_pager.mutex);
                 exit(0);
                 //return;
             }
@@ -265,14 +278,17 @@ int pager_syslog(pid_t pid, void *addr, size_t len)
                     printf("%02x", (unsigned)buf[page*sysconf(_SC_PAGE_SIZE)+byte_atual]);
                 }
             }
+            pthread_mutex_unlock(&my_pager.mutex);
             return 0;
         }
     }
+    pthread_mutex_unlock(&my_pager.mutex);
 	return -1;
 }
 
 void pager_destroy(pid_t pid)
 {
+    pthread_mutex_trylock(&my_pager.mutex);
     for (int i = 0; i < my_pager.n_procs; i++)
     {
         if (my_pager.pid2proc[i]->pid == pid)
@@ -298,4 +314,5 @@ void pager_destroy(pid_t pid)
             break;
         }
     }
+    pthread_mutex_unlock(&my_pager.mutex);
 }
