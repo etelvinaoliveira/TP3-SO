@@ -85,6 +85,7 @@ void second_chance()
                     my_pager.pid2proc[i]->pages[my_pager.frames[second_chance_idx].page].on_disk = 1;
                     my_pager.pid2proc[i]->pages[my_pager.frames[second_chance_idx].page].frame = -1;
                     mmu_disk_write(frame_from, block_to); 
+                    mmu_nonresident(my_pager.pid2proc[i]->pid, pager_page_to_addr(my_pager.frames[frame_from].page));
                 }
             }
             break;
@@ -93,6 +94,7 @@ void second_chance()
         {
             my_pager.frames[second_chance_idx].reference_bit = 0;
             my_pager.frames[second_chance_idx].prot = PROT_NONE;
+            mmu_chprot(my_pager.frames[second_chance_idx].pid, pager_page_to_addr(my_pager.frames[second_chance_idx].page), PROT_NONE);
         }
         second_chance_idx++;
     }
