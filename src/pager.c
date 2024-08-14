@@ -134,7 +134,7 @@ void *pager_extend(pid_t pid){
 
         
         pthread_mutex_unlock(&my_pager.mutex);
-        return pager_to_addr(my_pager.pid2proc[i].npages -1);
+        return page_to_addr(my_pager.pid2proc[i].npages -1);
       }
     }
   }
@@ -153,7 +153,7 @@ void second_chance(){
           int frame_from = my_pager.pid2proc[i].pages[my_pager.frames[my_pager.second_chance_idx].page].frame;
           int block_to = my_pager.pid2proc[i].pages[my_pager.frames[my_pager.second_chance_idx].page].block;
           my_pager.pid2proc[i].pages[my_pager.frames[my_pager.second_chance_idx].page].frame = -1;
-          mmu_nonresident(my_pager.pid2proc[i].pid, pager_to_addr(my_pager.frames[frame_from].page));
+          mmu_nonresident(my_pager.pid2proc[i].pid, page_to_addr(my_pager.frames[frame_from].page));
           if(my_pager.frames[frame_from].dirty == 1){
             my_pager.pid2proc[i].pages[my_pager.frames[my_pager.second_chance_idx].page].on_disk = 1;
             mmu_disk_write(frame_from, block_to);
@@ -164,7 +164,7 @@ void second_chance(){
     } else{
         my_pager.frames[my_pager.second_chance_idx].reference_bit = 0;
         my_pager.frames[my_pager.second_chance_idx].prot = PROT_NONE;
-        mmu_chprot(my_pager.frames[my_pager.second_chance_idx].pid, pager_to_addr(my_pager.frames[my_pager.second_chance_idx].page), PROT_NONE);
+        mmu_chprot(my_pager.frames[my_pager.second_chance_idx].pid, page_to_addr(my_pager.frames[my_pager.second_chance_idx].page), PROT_NONE);
     }
     my_pager.second_chance_idx++;
   }
@@ -207,7 +207,7 @@ void pager_fault(pid_t pid, void *addr){
           mmu_zero_fill(frame);
         }
 
-        mmu_resident(pid, pager_to_addr(page), frame, PROT_READ);
+        mmu_resident(pid, page_to_addr(page), frame, PROT_READ);
         my_pager.frames[frame].prot = PROT_READ;
         my_pager.frames[frame].dirty = 0;
       } else{
@@ -215,11 +215,11 @@ void pager_fault(pid_t pid, void *addr){
 
          if (my_pager.frames[frame].prot==PROT_NONE){
           my_pager.frames[frame].prot = PROT_READ;
-          mmu_chprot(pid, pager_to_addr(page), PROT_READ);
+          mmu_chprot(pid, page_to_addr(page), PROT_READ);
         } else {
           my_pager.frames[frame].prot = PROT_READ | PROT_WRITE;
           my_pager.frames[frame].dirty = 1;
-          mmu_chprot(pid, pager_to_addr(page), PROT_READ | PROT_WRITE);
+          mmu_chprot(pid, page_to_addr(page), PROT_READ | PROT_WRITE);
         }
       }
       
