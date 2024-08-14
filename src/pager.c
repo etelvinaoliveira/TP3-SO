@@ -14,26 +14,26 @@
 
 #define NUM_PAGES (UVM_MAXADDR - UVM_BASEADDR + 1) / PAGE_SIZE
 
-void *pager_page_to_addr(int page) {
+void *page_to_addr(int page) {
   return (void *)(UVM_BASEADDR + page * sysconf(_SC_PAGESIZE));
 }
 
-int pager_addr_to_page(void * vaddr) {
+int addr_to_page(void * vaddr) {
   return ((long int)vaddr - UVM_BASEADDR) / sysconf(_SC_PAGESIZE) ;
 }
 
 struct frame_data {
 	pid_t pid;
 	int page;
-	int prot; /* PROT_READ (clean) or PROT_READ | PROT_WRITE (dirty) */
-	int dirty; /* prot may be reset by pager_free_frame() */
-	int reference_bit; /*used for second chance algorithm*/
+	int prot; 
+	int dirty; 
+	int reference_bit; 
 };
 
 struct page_data {
 	int block;
-	int on_disk; /* 1 indicates page was written to disk, 0 not in disk */ 
-	int frame; /* -1 indicates non-resident */
+	int on_disk; 
+	int frame;
 };
 
 struct proc {
@@ -47,7 +47,6 @@ struct pager {
 	pthread_mutex_t mutex;
 	int nframes;
 	int frames_free;
-	int clock;
 	struct frame_data *frames; 
 	int *free_frames_stack; 
 	int nblocks;
@@ -85,7 +84,6 @@ void pager_init(int nframes, int nblocks){
     p++;
   }
 
-  my_pager.clock = 0;
   my_pager.n_procs = 0;
   my_pager.block2pid = malloc(nblocks*sizeof(pid_t));
   my_pager.pid2proc = malloc(sizeof(struct proc));
@@ -102,7 +100,7 @@ void pager_create(pid_t pid){
   my_pager.pid2proc = realloc(my_pager.pid2proc, my_pager.n_procs*sizeof(struct proc));
   my_pager.pid2proc[my_pager.n_procs-1].pid = pid;
   my_pager.pid2proc[my_pager.n_procs-1].npages = 0;
-  my_pager.pid2proc[my_pager.n_procs-1].maxpages = pager_addr_to_page((void *)UVM_MAXADDR);
+  my_pager.pid2proc[my_pager.n_procs-1].maxpages = addr_to_page((void *)UVM_MAXADDR);
 
   pthread_mutex_unlock(&my_pager.mutex);
 }
@@ -136,7 +134,7 @@ void *pager_extend(pid_t pid){
 
         
         pthread_mutex_unlock(&my_pager.mutex);
-        return pager_page_to_addr(my_pager.pid2proc[i].npages -1);
+        return pager_to_addr(my_pager.pid2proc[i].npages -1);
       }
     }
   }
@@ -155,7 +153,7 @@ void second_chance(){
           int frame_from = my_pager.pid2proc[i].pages[my_pager.frames[my_pager.second_chance_idx].page].frame;
           int block_to = my_pager.pid2proc[i].pages[my_pager.frames[my_pager.second_chance_idx].page].block;
           my_pager.pid2proc[i].pages[my_pager.frames[my_pager.second_chance_idx].page].frame = -1;
-          mmu_nonresident(my_pager.pid2proc[i].pid, pager_page_to_addr(my_pager.frames[frame_from].page));
+          mmu_nonresident(my_pager.pid2proc[i].pid, pager_to_addr(my_pager.frames[frame_from].page));
           if(my_pager.frames[frame_from].dirty == 1){
             my_pager.pid2proc[i].pages[my_pager.frames[my_pager.second_chance_idx].page].on_disk = 1;
             mmu_disk_write(frame_from, block_to);
@@ -166,7 +164,7 @@ void second_chance(){
     } else{
         my_pager.frames[my_pager.second_chance_idx].reference_bit = 0;
         my_pager.frames[my_pager.second_chance_idx].prot = PROT_NONE;
-        mmu_chprot(my_pager.frames[my_pager.second_chance_idx].pid, pager_page_to_addr(my_pager.frames[my_pager.second_chance_idx].page), PROT_NONE);
+        mmu_chprot(my_pager.frames[my_pager.second_chance_idx].pid, pager_to_addr(my_pager.frames[my_pager.second_chance_idx].page), PROT_NONE);
     }
     my_pager.second_chance_idx++;
   }
@@ -175,7 +173,7 @@ void second_chance(){
 void pager_fault(pid_t pid, void *addr){
   pthread_mutex_lock(&my_pager.mutex);
 
-  int page = pager_addr_to_page(addr);
+  int page = addr_to_page(addr);
 
   for (int i = 0; i < my_pager.n_procs; i++){
     if (my_pager.pid2proc[i].pid==pid){
@@ -201,8 +199,6 @@ void pager_fault(pid_t pid, void *addr){
         my_pager.frames[frame].page = page;
         my_pager.frames[frame].reference_bit = 1;
 
-       
-
         if(my_pager.pid2proc[i].pages[page].on_disk){
           int block = my_pager.pid2proc[i].pages[page].block;
           my_pager.pid2proc[i].pages[page].on_disk = 0;
@@ -211,7 +207,7 @@ void pager_fault(pid_t pid, void *addr){
           mmu_zero_fill(frame);
         }
 
-        mmu_resident(pid, pager_page_to_addr(page), frame, PROT_READ);
+        mmu_resident(pid, pager_to_addr(page), frame, PROT_READ);
         my_pager.frames[frame].prot = PROT_READ;
         my_pager.frames[frame].dirty = 0;
       } else{
@@ -219,11 +215,11 @@ void pager_fault(pid_t pid, void *addr){
 
          if (my_pager.frames[frame].prot==PROT_NONE){
           my_pager.frames[frame].prot = PROT_READ;
-          mmu_chprot(pid, pager_page_to_addr(page), PROT_READ);
+          mmu_chprot(pid, pager_to_addr(page), PROT_READ);
         } else {
           my_pager.frames[frame].prot = PROT_READ | PROT_WRITE;
           my_pager.frames[frame].dirty = 1;
-          mmu_chprot(pid, pager_page_to_addr(page), PROT_READ | PROT_WRITE);
+          mmu_chprot(pid, pager_to_addr(page), PROT_READ | PROT_WRITE);
         }
       }
       
@@ -238,8 +234,8 @@ int pager_syslog(pid_t pid, void *addr, size_t len){
     return -1;
 
   pthread_mutex_lock(&my_pager.mutex);    
-  int initial_page = pager_addr_to_page(addr); 
-  int final_page = pager_addr_to_page((addr+len));
+  int initial_page = addr_to_page(addr); 
+  int final_page = addr_to_page((addr+len));
 
   for (int i = 0; i < my_pager.n_procs; i++){
     if (my_pager.pid2proc[i].pid==pid){
