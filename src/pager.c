@@ -173,34 +173,6 @@ void *pager_extend(pid_t pid)
                 break;
             }
         }
-        // se tem uma pagina livre salva nela e cria a primeira pagina do processo
-        if (my_pager.frames_free>0)
-        {
-            my_pager.frames_free--;
-            int frame_idx = my_pager.free_frames_stack[my_pager.frames_free];
-
-            my_pager.frames[frame_idx].pid = pid;
-            my_pager.pid2proc[ind_pid2proc].pages[ind_page].frame = frame_idx;
-            my_pager.pid2proc[ind_pid2proc].pages[ind_page].on_disk = 0;
-            my_pager.frames[frame_idx].dirty = 1;
-            my_pager.frames[frame_idx].prot = PROT_NONE;
-            
-            pthread_mutex_unlock(&my_pager.mutex);
-            return pager_page_to_addr(ind_page); 
-        }
-        else
-        {
-            //se não tem pagina livre roda o algoritmo da segunda chance e passa apgina a ser retirada para o disco
-            second_chance();
-            my_pager.pid2proc[ind_pid2proc].pages[ind_page].frame = second_chance_idx; //vai ter o valor certo ao final da execução do second_chance
-            my_pager.pid2proc[ind_pid2proc].pages[ind_page].on_disk = 0;
-
-            my_pager.frames[second_chance_idx].dirty = 1;
-            my_pager.frames[second_chance_idx].prot = PROT_NONE;
-            
-            pthread_mutex_unlock(&my_pager.mutex);
-            return pager_page_to_addr(ind_page);
-        }
     }
     pthread_mutex_unlock(&my_pager.mutex);
 	return NULL;
@@ -225,7 +197,40 @@ void pager_fault(pid_t pid, void *addr)
             // se estiver dá permissão de escrita (chprot)
             // e se for o primeiro acesso àquela pagina precisa dar mmu_zero_fill
             
+            /********************************************************/
             int frame = my_pager.pid2proc[i].pages[page].frame;
+            if (my_pager.pid2proc[i].pages[page].on_disk)// frame ainda não alocado
+            {
+                if (my_pager.frames_free>0)
+                {
+                    my_pager.frames_free--;
+                    int frame_idx = my_pager.free_frames_stack[my_pager.frames_free];
+
+                    my_pager.frames[frame_idx].pid = pid;
+                    my_pager.pid2proc[i].pages[ind_page].frame = frame_idx;
+                    my_pager.pid2proc[i].pages[ind_page].on_disk = 0;
+                    my_pager.frames[frame_idx].dirty = 1;
+                    my_pager.frames[frame_idx].prot = PROT_NONE;
+                    
+                    pthread_mutex_unlock(&my_pager.mutex);
+                    return pager_page_to_addr(ind_page); 
+                }
+                else
+                {
+                    //se não tem pagina livre roda o algoritmo da segunda chance e passa apgina a ser retirada para o disco
+                    second_chance();
+                    my_pager.pid2proc[i].pages[ind_page].frame = second_chance_idx; //vai ter o valor certo ao final da execução do second_chance
+                    my_pager.pid2proc[i].pages[ind_page].on_disk = 0;
+
+                    my_pager.frames[second_chance_idx].dirty = 1;
+                    my_pager.frames[second_chance_idx].prot = PROT_NONE;
+                    
+                    pthread_mutex_unlock(&my_pager.mutex);
+                    return pager_page_to_addr(ind_page);
+                }
+            }
+            /********************************************************/
+
             if (my_pager.pid2proc[i].pages[page].on_disk) //não está na RAM
             {
                 if (my_pager.frames_free>0)
@@ -319,7 +324,7 @@ int pager_syslog(pid_t pid, void *addr, size_t len)
 }
 
 void pager_destroy(pid_t pid)
-{
+{/*
     pthread_mutex_trylock(&my_pager.mutex);
     for (int i = 0; i < my_pager.n_procs; i++)
     {
@@ -346,5 +351,5 @@ void pager_destroy(pid_t pid)
             break;
         }
     }
-    pthread_mutex_unlock(&my_pager.mutex);
+    pthread_mutex_unlock(&my_pager.mutex);*/
 }
